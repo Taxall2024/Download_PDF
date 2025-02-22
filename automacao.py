@@ -7,10 +7,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# Ler o CNPJ a partir do arquivo txt
-cnpj_file_path = r""
-with open(cnpj_file_path, 'r', encoding='utf-8') as f:
-    cnpj_raw = f.read().strip()
+# Solicitar o CNPJ do usuário
+cnpj_raw = input("Por favor, digite o CNPJ (pode incluir pontos, traços e barra): ")
 
 # Remover caracteres especiais do CNPJ (mantendo apenas dígitos)
 cnpj = re.sub(r'\D', '', cnpj_raw)
@@ -113,21 +111,22 @@ def verificar_e_clicar_todos_botoes_download(driver, botao_avancar_xpath):
         while True:  # Loop para continuar enquanto houver páginas
             # Iterar até no máximo 5 botões na página atual
             for i in range(1, 6):
-                # XPath do botão de download correspondente ao índice
-                botao_download_xpath = f'(//div/i[@class="icon-button icon-print iconeAcao"])[{i}]'
-
+                botao_download_xpath = f'(//i[contains(@class, "icon-button") and contains(@class, "icon-print") and contains(@class, "iconeAcao")])[{i}]'
                 try:
-                    # Esperar até que o botão esteja visível e clicável
                     botao_download = WebDriverWait(driver, 10).until(
                         EC.element_to_be_clickable((By.XPATH, botao_download_xpath))
                     )
-                    print(f"Botão de download {i} encontrado. Clicando no botão...")
+                    print(f"Botão de download {i} encontrado. Forçando clique via JS...")
 
-                    # Clicar no botão
-                    botao_download.click()
-                    print(f"Botão de download {i} clicado.")
+                    # Rolamos até o botão, para garantir que ele esteja no DOM
+                    driver.execute_script("arguments[0].scrollIntoView(true);", botao_download)
+                    time.sleep(1)
 
-                    # Esperar um tempo para garantir que o arquivo seja baixado
+                    # Agora, em vez de usar botao_download.click(), forçamos via JavaScript
+                    driver.execute_script("arguments[0].click();", botao_download)
+                    print(f"Botão de download {i} clicado com sucesso (JS).")
+
+                    # Esperar alguns segundos para garantir que o arquivo seja baixado
                     time.sleep(5)
 
                 except Exception as e:
@@ -137,35 +136,37 @@ def verificar_e_clicar_todos_botoes_download(driver, botao_avancar_xpath):
             # Rolar até o final da página para garantir que a paginação está visível
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             print("Rolando até o final da página para garantir visibilidade da paginação.")
-            time.sleep(2)  # Aguarde um tempo para garantir o carregamento da página
+            time.sleep(2)
 
-            # Verificar se o botão de avançar está desabilitado
+            # Verifica se chegou ao final (botão de avançar desabilitado)
             botao_desabilitado_xpath = '(//li[@class="page-item ng-star-inserted disabled"])[1]'
             try:
                 WebDriverWait(driver, 5).until(
                     EC.presence_of_element_located((By.XPATH, botao_desabilitado_xpath))
                 )
                 print("Botão de avançar está desabilitado. Não há mais páginas para avançar.")
-                encerrar_sessao(driver)  # Encerrar a sessão
-                return  # Sair do loop e da função
+                encerrar_sessao(driver)
+                return  # Sai do loop
             except Exception:
                 print("Botão de avançar não está desabilitado. Continuando...")
 
-            # Verificar e clicar no botão para avançar para a próxima página
+            # Verificar e clicar no botão para avançar
             try:
                 botao_avancar = WebDriverWait(driver, 10).until(
                     EC.element_to_be_clickable((By.XPATH, botao_avancar_xpath))
                 )
                 print("Botão de avançar para próxima página encontrado. Clicando no botão...")
 
-                # Clicar no botão de avançar
-                botao_avancar.click()
-                print("Avançando para a próxima página...")
-                time.sleep(2)  # Esperar um tempo para carregar a próxima página
+                driver.execute_script("arguments[0].scrollIntoView(true);", botao_avancar)
+                time.sleep(1)
+                driver.execute_script("arguments[0].click();", botao_avancar)
 
+                print("Avançando para a próxima página...")
+                time.sleep(2)
             except Exception as e:
                 print("Erro ao clicar no botão de avançar.")
-                break  # Interrompe o loop caso não consiga avançar
+                break
+
     except Exception as e:
         print(f"Erro ao verificar ou clicar nos botões de download: {e}")
 
