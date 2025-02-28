@@ -1,3 +1,4 @@
+import os
 import time
 import traceback
 import undetected_chromedriver as uc
@@ -7,14 +8,51 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# Solicitar o CNPJ do usuário
+# === Solicitar entradas do usuário ===
 cnpj_raw = input("Por favor, digite o CNPJ (pode incluir pontos, traços e barra): ")
-cnpj = re.sub(r'\D', '', cnpj_raw)
+cnpj = re.sub(r'\D', '', cnpj_raw)  # remove não-dígitos
 print(f"CNPJ lido e sanitizado: {cnpj}")
 
-# Inicializar o driver com o undetected_chromedriver
+data_inicial_raw = input("Por favor, digite a data inicial (dd/mm/aaaa): ")
+data_final_raw = input("Por favor, digite a data final (dd/mm/aaaa): ")
+
+# Remover não-dígitos das datas
+data_inicial_digits = re.sub(r'\D', '', data_inicial_raw)
+data_final_digits = re.sub(r'\D', '', data_final_raw)
+
+# Função auxiliar para formatar data no padrão dd/mm/aaaa
+def formatar_data(digits):
+    if len(digits) == 8:  # Supondo ddmmYYYY
+        return digits[:2] + "/" + digits[2:4] + "/" + digits[4:]
+    else:
+        return data_inicial_raw  # Fallback, caso seja inválido
+
+data_inicial_formatada = formatar_data(data_inicial_digits)
+data_final_formatada = formatar_data(data_final_digits)
+
+print(f"Data inicial lida e formatada: {data_inicial_formatada}")
+print(f"Data final lida e formatada: {data_final_formatada}")
+
+# === Configurar pasta de downloads ===
+download_base_path = r"C:\Users\pedro.melo\Desktop\0_TAX\DownloadPerDcomp\Download_PDF\data_output"
+cnpj_subfolder = os.path.join(download_base_path, cnpj)
+
+# Criar a subpasta com o nome do CNPJ, se não existir
+os.makedirs(cnpj_subfolder, exist_ok=True)
+print(f"Pasta de download criada (ou já existente): {cnpj_subfolder}")
+
+# === Inicializar o driver com preferências de download ===
 options = uc.ChromeOptions()
+
+prefs = {
+    "download.default_directory": cnpj_subfolder,  # Pasta de destino para os downloads
+    "download.prompt_for_download": False,         # Não perguntar onde salvar
+    "download.directory_upgrade": True,            # Atualizar o diretório de download
+    "plugins.always_open_pdf_externally": True     # Forçar PDF a ser baixado, não aberto no Chrome
+}
+options.add_experimental_option("prefs", prefs)
 options.add_argument('--start-maximized')
+
 driver = uc.Chrome(options=options, version_main=132)
 
 def login_ecac(driver):
@@ -37,8 +75,8 @@ def login_ecac(driver):
 def selecionar_cnpj(driver, cnpj):
     try:
         WebDriverWait(driver, 10).until(
-             EC.element_to_be_clickable((By.XPATH,'//*[@id="btnPerfil"]/span'))
-         ).click()
+            EC.element_to_be_clickable((By.XPATH,'//*[@id="btnPerfil"]/span'))
+        ).click()
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, '//*[@id="txtNIPapel2"]'))
         ).send_keys(cnpj)
@@ -50,9 +88,13 @@ def selecionar_cnpj(driver, cnpj):
     except Exception as e:
         print(f"Erro ao selecionar o CNPJ {cnpj}: {e}")
 
-def navegar_consulta(driver):
+def navegar_consulta(driver, data_inicial, data_final):
+    """
+    Ajustamos esta função para inserir as datas após clicar em 'Documentos Entregues'.
+    """
     try:
         driver.get("https://www3.cav.receita.fazenda.gov.br/perdcomp-web/#/documento/identificacao-novo")
+
         visualizar_xpath = "//i[contains(@class, 'icon-VisualizarDocumento')]/ancestor::a"
         WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.XPATH, visualizar_xpath))
@@ -64,15 +106,31 @@ def navegar_consulta(driver):
         ).click()
 
         print("Navegação para 'Documentos Entregues' realizada com sucesso!")
+
+        # === Inserir datas nos campos ===
+        campo_data_inicial = WebDriverWait(driver, 20).until(
+            EC.element_to_be_clickable((By.XPATH, "(//input[@id='date'])[1]"))
+        )
+        campo_data_inicial.clear()
+        campo_data_inicial.send_keys(data_inicial)
+        time.sleep(1)
+
+        campo_data_final = WebDriverWait(driver, 20).until(
+            EC.element_to_be_clickable((By.XPATH, "(//input[@id='date'])[2]"))
+        )
+        campo_data_final.clear()
+        campo_data_final.send_keys(data_final)
+        time.sleep(1)
+
+        print(f"Datas de consulta inseridas: {data_inicial} até {data_final}")
     except Exception as e:
         print(f"Erro ao navegar para a página de consulta: {e}")
 
 def verificar_xpath_botao_avancar(driver):
     xpaths = [
-        '(//a[@aria-label="Next"])[2]',  # Primeira possibilidade
-        '(//a[@aria-label="Next"])[1]'   # Segunda possibilidade
+        '(//a[@aria-label="Next"])[2]',
+        '(//a[@aria-label="Next"])[1]'
     ]
-    
     for xpath in xpaths:
         try:
             WebDriverWait(driver, 5).until(
@@ -80,18 +138,15 @@ def verificar_xpath_botao_avancar(driver):
             )
             print(f"Botão de avançar encontrado com XPath: {xpath}")
             return xpath
-        except Exception:
+        except:
             continue
     print("Nenhum botão de avançar encontrado.")
     return None
 
 def verificar_e_clicar_todos_botoes_download(driver, botao_avancar_xpath):
     try:
-        # Contador de páginas, inicia em 2 conforme solicitado
-        pagina_atual = 2
-
+        pagina_atual = 2  # contador de páginas inicia em 2
         while True:
-            # Iterar até no máximo 5 botões na página atual
             for i in range(1, 6):
                 botao_download_xpath = f'(//i[contains(@class, "icon-button") and contains(@class, "icon-print") and contains(@class, "iconeAcao")])[{i}]'
                 try:
@@ -106,7 +161,6 @@ def verificar_e_clicar_todos_botoes_download(driver, botao_avancar_xpath):
                     print(f"Botão de download {i} clicado com sucesso (JS).")
 
                     time.sleep(5)
-
                 except Exception as e:
                     print(f"Erro ao verificar ou clicar no botão de download {i}: {e}")
                     break
@@ -115,7 +169,6 @@ def verificar_e_clicar_todos_botoes_download(driver, botao_avancar_xpath):
             print("Rolando até o final da página para garantir visibilidade da paginação.")
             time.sleep(2)
 
-            # Verifica se o botão de avançar está desabilitado (fim da lista)
             botao_desabilitado_xpath = '(//li[@class="page-item ng-star-inserted disabled"])[1]'
             try:
                 WebDriverWait(driver, 5).until(
@@ -124,10 +177,9 @@ def verificar_e_clicar_todos_botoes_download(driver, botao_avancar_xpath):
                 print("Botão de avançar está desabilitado. Não há mais páginas para avançar.")
                 encerrar_sessao(driver)
                 return
-            except Exception:
+            except:
                 print("Botão de avançar não está desabilitado. Continuando...")
 
-            # Clicar no botão para avançar
             try:
                 botao_avancar = WebDriverWait(driver, 10).until(
                     EC.element_to_be_clickable((By.XPATH, botao_avancar_xpath))
@@ -138,10 +190,8 @@ def verificar_e_clicar_todos_botoes_download(driver, botao_avancar_xpath):
                 time.sleep(1)
                 driver.execute_script("arguments[0].click();", botao_avancar)
 
-                # Em vez de "Avançando para a próxima página...", usamos a contagem iniciada em 2
                 print(f"Avançando para a página {pagina_atual}")
                 pagina_atual += 1
-
                 time.sleep(2)
             except Exception as e:
                 print("Erro ao clicar no botão de avançar.")
@@ -164,27 +214,34 @@ def encerrar_sessao(driver):
     except Exception as e:
         print(f"Erro ao encerrar a sessão: {e}")
 
-# Fluxo principal
+# === Fluxo principal ===
 try:
+    # 1. Login
     login_ecac(driver)
     time.sleep(2)
+
+    # 2. Selecionar CNPJ
     selecionar_cnpj(driver, cnpj)
     time.sleep(5)
-    navegar_consulta(driver)
+
+    # 3. Navegar e inserir datas
+    navegar_consulta(driver, data_inicial_formatada, data_final_formatada)
     time.sleep(2)
 
+    # 4. Verificar qual XPath do botão de avançar e fazer downloads
     botao_avancar_xpath = verificar_xpath_botao_avancar(driver)
     if botao_avancar_xpath:
         verificar_e_clicar_todos_botoes_download(driver, botao_avancar_xpath)
     else:
         print("Não foi possível determinar o XPath do botão de avançar. Encerrando a rotina.")
+
 except Exception as e:
     print("Ocorreu um erro durante a execução do script:")
     traceback.print_exc()
 finally:
     try:
         encerrar_sessao(driver)
-    except Exception:
+    except:
         print("Não foi possível encerrar a sessão de forma segura.")
     finally:
         driver.quit()
