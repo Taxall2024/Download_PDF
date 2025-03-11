@@ -60,6 +60,8 @@ print(f"Pasta de download criada (ou já existente): {cnpj_subfolder}")
 
 # === Inicializar o driver com preferências de download ===
 options = uc.ChromeOptions()
+
+# Ainda tentamos usar prefs, embora em incognito geralmente não funcione
 prefs = {
     "download.default_directory": cnpj_subfolder,
     "download.prompt_for_download": False,
@@ -93,6 +95,13 @@ driver.execute_cdp_cmd(
         """
     }
 )
+
+# === O COMANDO CHAVE PARA FORÇAR DOWNLOADS EM INCÓGNITO ===
+driver.execute_cdp_cmd("Page.setDownloadBehavior", {
+    "behavior": "allow",
+    "downloadPath": cnpj_subfolder
+})
+# ======================
 
 def login_ecac(driver):
     try:
